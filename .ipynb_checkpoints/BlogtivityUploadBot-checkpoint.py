@@ -53,9 +53,8 @@ class BlogtivityUploadBot :
                 for row in rows:
                     cells = row.find_all('td')
                     if(len(cells) > 0):
-                        date_added = cells[6].text
                         new_row = {
-                            "id" : (pd.to_datetime(date_added) - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s'),
+                            "id" : cells[0].text,
                             "blog_title" : cells[2].text,
                             "blog_url" : cells[2].find('a')['href'],
                             "scheduled_post" : int(cells[5].text)
@@ -63,13 +62,11 @@ class BlogtivityUploadBot :
                         df_new = df_new.append(new_row, ignore_index=True)
                 
                 df_new["xml"] = "-"
-                df_new = df_new.sort_values(by=['scheduled_post'],ascending=True)
-                df_new = df_new.set_index("id")
+                df_new.sort_values(by=['scheduled_post'],ascending=True)
+                df_new.set_index("id")
 
                 if os.path.isfile("blogs.csv") :
                     df_old = pd.read_csv("blogs.csv")
-                    df_old = df_old.sort_values(by=['scheduled_post'],ascending=True)
-                    df_old = df_old.set_index("id")
                     if not df_new.equals(df_old) :
                         df_diff = (len(df_new) - len(df_old))
                         print("Sinkronisasi data baru dan lama..")
@@ -77,7 +74,7 @@ class BlogtivityUploadBot :
                             print("Terdapat penambahan {df_diff} blog".format(df_diff = df_diff))
                         elif df_diff < 0:
                             print("Terdapat pengurangan {df_diff} blog".format(df_diff = df_diff))
-                        df_old = df_old[df_old["xml"] != "-"][["xml"]]
+                        df_old = df_old[df_old["xml"] != "-"][["id","xml"]].set_index("id")
                         for index, row in df_old.iterrows():
                             df_new.at[index,"xml"] = row["xml"]
                 else :
@@ -125,50 +122,52 @@ class BlogtivityUploadBot :
                     blog_id = ''
                     with requests.Session() as s2:
                         get_id_req = s2.get(row["blog_url"],cookies=cookie)
-                        if get_id_req.status_code == 200 :
-                            blog_page_soup = BeautifulSoup(get_id_req.text, "html.parser")
-                            blog_id = blog_page_soup.find_all('form')[1].find('input')["value"]
-                            if blog_id != '':
-                                spinner_upload.start()
-                                multipart_data = MultipartEncoder(
-                                    fields={
-                                            'fileisi' : (xml_file_name, open('xmls/'+cari+'/'+xml_file_name,'rb')),
-                                            'blogs[]': blog_id, 
-                                            'randomize': 'Y',
-                                            'parser' : 'xml_shuriken',
-                                            'status' : 'connect'
-                                    }
-                                )
-                                upload_api = "https://"+self.__domain+"/posts/setimport"
-                                
-                                upload_xml_req = s2.post(upload_api,data=multipart_data,cookies=cookie,headers={
-                                    "Host": self.__domain,
-                                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-                                    "Accept-Encoding": "gzip, deflate, br",
-                                    "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7,af;q=0.6,ms;q=0.5",
-                                    "Cache-Control": "max-age=0",
-                                    "Content-Type": multipart_data.content_type,
-                                    "Origin": "https://"+self.__domain,
-                                    "Referer": row["blog_url"],
-                                    "Upgrade-Insecure-Requests": "1",
-                                    "User-Agent" : "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36"
-                                })
-                                if upload_xml_req.status_code == 200 :
-                                    spinner_upload.stop()
-                                    logging.info("Upload {xml_file} untuk {blog_title}".format(xml_file=xml_file_name,blog_title=row["blog_title"]))
-                                    df_new.at[index, 'xml'] = xml_file_name
-                                    counter += 1
-                                    if int(counter) != int(all_blog) :
-                                        df_new.to_csv("blogs.csv",index=True)
-                                        print("Upload berhasil {counter} / {all_blog} ".format(counter=counter,all_blog=all_blog))
-                                    else :
-                                        print("ALL DONE")
-                                        df_new.to_csv("blogs.csv",index=True)
-                                        return True
-                            else :
+                        blog_page_soup = BeautifulSoup(get_id_req.text, "html.parser")
+                        blog_id = blog_page_soup.find_all('form')[1].find('input')["value"]
+                    if blog_id != '':
+                        spinner_upload.start()
+                        multipart_data = MultipartEncoder(
+                            fields={
+                                    'fileisi' : (xml_file_name, open('xmls/'+cari+'/'+xml_file_name,'rb')),
+                                    'blogs': blog_id, 
+                                    'randomize': 'Y',
+                                    'parser' : 'xml_shuriken',
+                                    'status' : 'connect'
+                            }
+                        )
+                        upload_api = "https://"+self.__domain+"/posts/setimport"
+                        
+                        with requests.Session() as s3:
+                            
+                            upload_xml_req = s3.post(upload_api,data=multipart_data,cookies=cookie,headers={
+                                "Host": self.__domain,
+                                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+                                "Accept-Encoding": "gzip, deflate, br",
+                                "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7,af;q=0.6,ms;q=0.5",
+                                "Cache-Control": "max-age=0",
+                                "Content-Type": multipart_data.content_type,
+                                "Origin": "https://"+self.__domain,
+                                "Referer": "https://"+self.__domain+"/accounts/blog",
+                                "Upgrade-Insecure-Requests": "1",
+                                "User-Agent" : "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36"
+                            })
+                            if upload_xml_req.status_code == 200 :
                                 spinner_upload.stop()
-                                print("Gagal mendapatkan ID blog")
-                                pass
+                                logging.info("Upload {xml_file} untuk {blog_title}".format(xml_file=xml_file_name,blog_title=row["blog_title"]))
+                                df_new.at[index, 'xml'] = xml_file_name
+                                counter += 1
+
+                                if int(counter) != int(all_blog) :
+                                    df_new.to_csv("blogs.csv",index=True)
+                                    print("Upload berhasil {counter} / {all_blog} ".format(counter=counter,all_blog=all_blog))
+                                else :
+                                    print("ALL DONE")
+                                    df_new.to_csv("blogs.csv",index=True)
+                                    return True
+                    else :
+                        spinner_upload.stop()
+                        print("Gagal mendapatkan ID blog")
+                        pass
                 else :
                     spinner_upload.stop()
                     print("XML yang tersedia tidak cukup untuk semua blog")
